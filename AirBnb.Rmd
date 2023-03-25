@@ -1,0 +1,147 @@
+---
+title: "AirBnb"
+author: "Bofei He"
+date: "2023-02-08"
+output: html_document
+---
+## Importing Libraries
+```{r}
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(rvest) # package used to extract information from websites
+library(stringr) # package used to process text and strings
+library(readr)
+library(ggrepel)
+library(reshape2)
+library(ggplot2)
+```
+
+## Importing datasets
+```{r}
+reviews <- read.csv("reviews.csv")
+listings <- read.csv("listings.csv")
+```
+
+## Pre-Processing Data
+```{r}
+listings <- listings %>% 
+  mutate(price_numeric = as.numeric(price)) %>% 
+  select(-id, -host_id, , -host_name, -license) %>% 
+  filter(!is.na(number_of_reviews)) %>% 
+  filter(!is.na(reviews_per_month))
+```
+
+## Max Price
+```{r}
+listings %>% 
+  arrange(desc(price)) %>% 
+  head(5)
+```
+
+## General Location of Airbnbs
+```{r}
+listings %>%
+  ggplot(aes(x=neighbourhood_group)) + geom_bar()
+```
+
+## Room Type vs Affordable Price
+```{r}
+listings %>% 
+  filter(price <= 700) %>% 
+  ggplot(aes(x = room_type, y = price)) + geom_boxplot() + xlab("Room Type") + ylab("Price") + ggtitle("Room Type vs Price")
+```
+
+## Top 10 Most expensive Airbnb Neighborhood
+```{r}
+listings %>% 
+  filter(neighbourhood_group == "City of Los Angeles") %>% 
+  group_by(neighbourhood) %>% 
+  summarize(avg_price = mean(price)) %>% 
+  arrange(desc(avg_price)) %>% 
+  head(10) %>% 
+  ggplot(aes(x = reorder(neighbourhood, -avg_price), y = avg_price)) + 
+    geom_point() + ylab("Average Price") + xlab("Neighbourhood") + 
+    theme(axis.title.x = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## Linear Regression Model
+```{r}
+library(tidyverse)
+library(caret)
+library(magrittr)
+
+# Load data
+data <- read_csv("listings.csv")
+
+# Drop irrelevant columns
+data <- data %>%
+  select(-c(name, last_review))
+
+# Handle missing values
+data$reviews_per_month[is.na(data$reviews_per_month)] <- 0
+
+# Split numerical and categorical columns
+num_cols <- c("latitude", "longitude", "price", "number_of_reviews", "reviews_per_month", "calculated_host_listings_count", "availability_365", "number_of_reviews_ltm")
+cat_cols <- c("neighbourhood_group", "neighbourhood", "room_type")
+
+# One-hot encode categorical columns
+encoded_data <- dummyVars("~ .", data = data %>% select(cat_cols)) %>% predict(newdata = data %>% select(cat_cols))
+encoded_cols <- colnames(encoded_data)
+
+# Combine numerical and encoded categorical columns
+data_processed <- data %>% select(num_cols) %>% as.data.frame() %>% cbind(encoded_data)
+
+# Feature selection using correlation
+corr_mat <- cor(data_processed)
+corr_with_price <- corr_mat[, "price"]
+important_features <- abs(corr_with_price) >= 0.5 # Select features with correlation >= 0.5
+
+# Split data
+set.seed(42)
+train_idx <- createDataPartition(data_processed$price, p = 0.8, list = FALSE)
+train_data <- data_processed[train_idx, ]
+test_data <- data_processed[-train_idx, ]
+
+# Train model
+model <- lm(price ~ ., data = train_data)
+summary(model)
+
+# Evaluate model
+y_test <- test_data$price
+y_pred <- predict(model, newdata = test_data)
+mse <- mean((y_test - y_pred)^2)
+mae <- mean(abs(y_test - y_pred))
+r_squared <- cor(y_test, y_pred)^2
+print(paste0("Mean Squared Error: ", round(mse, 2)))
+print(paste0("Mean Absolute Error: ", round(mae, 2)))
+print(paste0("R-squared: ", round(r_squared, 2)))
+
+# Interpret model
+coefficients <- coef(model)
+for (i in seq_along(coefficients)[-1]) {
+  print(paste0(colnames(train_data[, important_features])[i], ": ", round(coefficients[i], 2)))
+}
+```
+
+## Visualizing Linear Regression
+```{r}
+# Load libraries
+library(ggplot2)
+
+# Create a data frame with actual and predicted values
+df <- data.frame(actual = y_test, predicted = y_pred)
+
+# Create the plot
+ggplot(df, aes(x = actual, y = predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  xlab("Actual price") +
+  ylab("Predicted price") +
+  ggtitle("Predicted vs. Actual Prices") +
+  xlim(0, 5000) +
+  ylim(0, 5000)
+
+```
+
+
