@@ -1,1 +1,1 @@
-We analyze different trends in teh US housing market.
+We analyze different trends in the US housing market.
